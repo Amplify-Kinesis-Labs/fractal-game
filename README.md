@@ -63,6 +63,31 @@ N = 4 is the **only** regular polygon where the unrestricted chaos game fails to
 
 The pentagon's optimal F is **1/phi** (the golden ratio inverse, ~0.618). This falls out of the algebra: since `sin(pi/10) = (sqrt(5) - 1) / 4`, the formula simplifies to `1 / (1 + 2 * (sqrt(5) - 1) / 4) = 2 / (1 + sqrt(5)) = 1/phi`. The golden ratio appearing in pentagonal geometry is well-known in other contexts (the diagonal-to-side ratio of a regular pentagon is phi), but seeing it emerge independently from the IFS contraction formula is a satisfying confirmation that the same deep structure governs both.
 
+#### How novel is this connection?
+
+We investigated whether the explicit link between the pentagon's chaos game ratio and 1/phi had been previously recognized. The answer is nuanced — **the underlying pieces are ancient, but the bridge between them was rarely stated.**
+
+**The trigonometric identity is classical.** The fact that `sin(pi/10) = (sqrt(5) - 1) / 4` and equivalently `phi = 1 + 2*sin(pi/10)` traces back to Euclid's *Elements* (~300 BC) and likely the Pythagoreans before him. It appears in Wolfram MathWorld, Wikipedia, ProofWiki, and standard trigonometry courses. This is settled, 2,300-year-old mathematics.
+
+**The chaos game literature mostly missed the connection.** A survey of the fractal literature reveals a consistent pattern: authors either give the general trigonometric formula without simplifying it, or give the decimal 0.618 without recognizing what it equals.
+
+| Source | What they state | Mention phi? |
+|---|---|---|
+| [Abdulaziz & Said (2021)](https://www.sciencedirect.com/science/article/abs/pii/S096007792100494X) — *Chaos, Solitons & Fractals* | General formula `K_n = 1/(1 + 2*sin(pi/2n))` for odd n | No |
+| [Tom Bates (2019)](http://archive.bridgesmathart.org/2019/bridges2019-139.html) — Bridges Conference | "0.618 is the pentagonal kissing number" | No |
+| [Larry Riddle](https://larryriddle.agnesscott.org/ifs/pentagon/sierngon.htm) — Agnes Scott College | Lists r = 0.381966 for Sierpinski pentagon | No |
+| [Christoffer Tarmet (2025)](https://arxiv.org/html/2505.18669) — arXiv | States `r_opt = 1/phi` for pentagon in table | **Yes** |
+
+The first explicit statement we found in the academic literature is from a **May 2025 arXiv preprint** by Christoffer Tarmet ("The Optimal Ratio of a Generalized Chaos Game in Regular Polytopes"), which lists `r_opt = 1/phi` directly in a table for the pentagon case.
+
+**Verdict: not a unique discovery, but a genuinely under-recognized connection.** The identity `sin(pi/10) = (sqrt(5)-1)/4` is classical. The optimal chaos game ratio for the pentagon being 0.618 is published. But the explicit observation that these combine to give `r_opt = 1/phi` — bridging fractal mathematics and golden ratio mathematics — was essentially absent from the chaos game literature until 2025. Most authors kept the two worlds separate, either giving a trigonometric formula without simplifying it, or a decimal without recognizing its algebraic identity.
+
+Interestingly, there are actually **two** golden-ratio-related pentagon fractals with different construction methods:
+- **Chaos game kissing ratio** (6 copies including center): `r = 1/phi ≈ 0.618`
+- **Sierpinski pentagon IFS** (5 copies at vertices only): `r = (3 - sqrt(5))/2 = phi^(-2) ≈ 0.382`
+
+Both ratios are powers of the golden ratio, and they sum to 1. The golden ratio's fingerprints are all over pentagonal fractal geometry — it just took a while for the literature to say so explicitly.
+
 ### What "optimal" actually means
 
 The kissing ratio is the **phase boundary** between three regimes:
