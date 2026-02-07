@@ -41,6 +41,38 @@ General formulas:
 
 Note: N = 4 (square) is unique — it fills uniformly without vertex selection restrictions, so no fractal structure appears in the unrestricted chaos game.
 
+## Mathematical Insights
+
+### Three formulas, not one
+
+The kissing ratio is not a single universal formula — it splits into **three cases** depending on `n mod 4`:
+
+| Condition | Formula | Why |
+|---|---|---|
+| n % 4 == 0 | `1/(1 + tan(pi/n))` | 4-fold symmetry creates edge-to-edge packing via tangent |
+| n % 2 == 0 (not 4) | `1/(1 + sin(pi/n))` | Even polygons without 4-fold symmetry pack differently |
+| odd n | `1/(1 + 2*sin(pi/(2n)))` | Odd vertex counts create vertex-to-edge gap geometry (note `2n`, not `n`) |
+
+The three cases arise from how the shrunken polygon copies pack together geometrically. The symmetry class of the polygon determines whether copies meet edge-to-edge, vertex-to-vertex, or vertex-to-edge — each producing a different trigonometric relationship.
+
+### The square is uniquely degenerate
+
+N = 4 is the **only** regular polygon where the unrestricted chaos game fails to produce a fractal. Because `tan(pi/4) = 1`, the optimal F works out to exactly 0.5, but the square's symmetry causes the attractor to have no holes — it fills uniformly. Every other polygon (3, 5, 6, 7, ..., 12) produces a gasket with visible self-similar structure at its optimal ratio. To get fractals from a square, you need vertex-selection restrictions like "cannot pick the same vertex twice in a row."
+
+### The golden ratio hides in the pentagon
+
+The pentagon's optimal F is **1/phi** (the golden ratio inverse, ~0.618). This falls out of the algebra: since `sin(pi/10) = (sqrt(5) - 1) / 4`, the formula simplifies to `1 / (1 + 2 * (sqrt(5) - 1) / 4) = 2 / (1 + sqrt(5)) = 1/phi`. The golden ratio appearing in pentagonal geometry is well-known in other contexts (the diagonal-to-side ratio of a regular pentagon is phi), but seeing it emerge independently from the IFS contraction formula is a satisfying confirmation that the same deep structure governs both.
+
+### What "optimal" actually means
+
+The kissing ratio is the **phase boundary** between three regimes:
+
+- **F below optimal**: the shrunken copies are separated — the attractor becomes fractal "dust" (disconnected Cantor-set-like points)
+- **F at optimal**: copies just touch — a perfect gasket with crisp holes and maximal fractal detail
+- **F above optimal**: copies overlap — the attractor starts filling in, and with enough overlap becomes a solid blob
+
+This explains why naive guesses like F = 1/3 for a hexagon produce a filled mass rather than a fractal: 1/3 is well below the optimal 2/3, so the attractor *is* fractal dust, but each sub-copy is so large relative to its spacing that at the macro scale they overlap into an apparently solid region. The structure only becomes visually apparent at exactly the right contraction ratio.
+
 ## Usage
 
 Open `fractal-chaos-game.html` in any modern browser. No build step, no dependencies — it's a single self-contained HTML file.
