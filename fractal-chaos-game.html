@@ -386,6 +386,66 @@
     align-items: center;
     gap: 8px;
   }
+
+  /* Zoom toolbar */
+  .zoom-toolbar {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    z-index: 10;
+    pointer-events: auto;
+  }
+
+  .zoom-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(22,27,34,0.85);
+    color: var(--text);
+    font-size: 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    font-family: inherit;
+    backdrop-filter: blur(8px);
+  }
+
+  .zoom-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  .zoom-level {
+    padding: 4px 10px;
+    font-size: 11px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    color: var(--text-dim);
+    background: rgba(22,27,34,0.85);
+    border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.15);
+    backdrop-filter: blur(8px);
+    pointer-events: none;
+    min-width: 48px;
+    text-align: center;
+  }
+
+  /* Selection rectangle */
+  .selection-rect {
+    position: absolute;
+    border: 2px dashed var(--accent);
+    background: rgba(88,166,255,0.08);
+    pointer-events: none;
+    z-index: 5;
+    display: none;
+  }
+
+  /* Canvas cursor states */
+  .canvas-area.pan-mode { cursor: grab; }
+  .canvas-area.panning { cursor: grabbing; }
+  .canvas-area.select-mode { cursor: crosshair; }
 </style>
 </head>
 <body>
@@ -499,18 +559,29 @@
   </div>
 </div>
 
-<div class="canvas-area" id="canvasArea">
+<div class="canvas-area pan-mode" id="canvasArea">
   <canvas id="fractalCanvas"></canvas>
+  <div class="zoom-toolbar">
+    <button class="zoom-btn" onclick="zoomIn()" title="Zoom In">+</button>
+    <button class="zoom-btn" onclick="zoomOut()" title="Zoom Out">&minus;</button>
+    <button class="zoom-btn" onclick="resetZoom()" title="Reset Zoom" style="font-size:12px;">&#8634;</button>
+    <div class="zoom-level" id="zoomLevel">1.0x</div>
+  </div>
+  <div class="selection-rect" id="selectionRect"></div>
   <div class="info-overlay" id="infoOverlay"></div>
 </div>
 
 <script>
-  // --- State ---
+  // ============================================================
+  //  STATE
+  // ============================================================
+  const MAX_BUFFER_POINTS = 10_000_000; // 10M point cap (~90MB)
+
   const state = {
     vertices: 3,
     totalPoints: 500000,
     fractalF: 0.5,
-    colorMode: 'single',   // 'single' | 'random' | 'vertex'
+    colorMode: 'single',
     singleColor: '#58a6ff',
     opacity: 0.8,
     dotSize: 1,
@@ -518,25 +589,42 @@
     pointsDrawn: 0,
     animFrameId: null,
     startTime: 0,
+    // View transform
+    viewCenterX: 0.5,
+    viewCenterY: 0.5,
+    viewZoom: 1.0,
+    // Point buffer (world coords)
+    pointsX: null,
+    pointsY: null,
+    pointsVI: null,
+    pointsStored: 0,
+    pointsCapacity: 0,
+    // Run-time color snapshot (for re-render)
+    runColorMode: 'single',
+    runSingleColor: '#58a6ff',
+    runOpacity: 0.8,
+    runDotSize: 1,
   };
 
-  // --- Optimal F calculation ---
-  // The "kissing ratio" where sub-copies just touch, producing a perfect gasket
+  // ============================================================
+  //  OPTIMAL F
+  // ============================================================
   function calcOptimalF(n) {
     if (n % 4 === 0) return 1 / (1 + Math.tan(Math.PI / n));
     if (n % 2 === 0) return 1 / (1 + Math.sin(Math.PI / n));
     return 1 / (1 + 2 * Math.sin(Math.PI / (2 * n)));
   }
 
-  function setOptimalF() {
-    const f = calcOptimalF(state.vertices);
-    setF(f);
-  }
+  function setOptimalF() { setF(calcOptimalF(state.vertices)); }
 
-  // --- Elements ---
+  // ============================================================
+  //  ELEMENTS
+  // ============================================================
   const canvas = document.getElementById('fractalCanvas');
   const ctx = canvas.getContext('2d');
   const canvasArea = document.getElementById('canvasArea');
+  const selectionRect = document.getElementById('selectionRect');
+  const zoomLevelEl = document.getElementById('zoomLevel');
 
   const verticesSlider = document.getElementById('verticesSlider');
   const pointsSlider = document.getElementById('pointsSlider');
@@ -551,20 +639,11 @@
   const progressRate = document.getElementById('progressRate');
   const infoOverlay = document.getElementById('infoOverlay');
 
-  // --- Logarithmic points slider ---
-  // Maps 0-800 to 1-100,000,000 logarithmically
+  // ============================================================
+  //  UTILITIES
+  // ============================================================
   function sliderToPoints(val) {
-    const minLog = 0;          // log10(1)
-    const maxLog = 8;          // log10(100,000,000)
-    const logVal = minLog + (val / 800) * (maxLog - minLog);
-    return Math.round(Math.pow(10, logVal));
-  }
-
-  function pointsToSlider(pts) {
-    const minLog = 0;
-    const maxLog = 8;
-    const logVal = Math.log10(Math.max(1, pts));
-    return Math.round(((logVal - minLog) / (maxLog - minLog)) * 800);
+    return Math.round(Math.pow(10, (val / 800) * 8));
   }
 
   function formatNumber(n) {
@@ -573,231 +652,390 @@
     return n.toLocaleString();
   }
 
-  // --- Canvas sizing ---
-  function resizeCanvas() {
-    const rect = canvasArea.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    const size = Math.min(rect.width, rect.height) - 40;
-    canvas.width = size * dpr;
-    canvas.height = size * dpr;
-    canvas.style.width = size + 'px';
-    canvas.style.height = size + 'px';
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    return size;
+  function hslToRgb(h, s, l) {
+    let r, g, b;
+    if (s === 0) { r = g = b = l; }
+    else {
+      const hue2rgb = (p, q, t) => {
+        if (t < 0) t += 1; if (t > 1) t -= 1;
+        if (t < 1/6) return p + (q - p) * 6 * t;
+        if (t < 1/2) return q;
+        if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+        return p;
+      };
+      const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+      const p = 2 * l - q;
+      r = hue2rgb(p, q, h + 1/3);
+      g = hue2rgb(p, q, h);
+      b = hue2rgb(p, q, h - 1/3);
+    }
+    return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
   }
 
-  // --- Vertex colors (for 'vertex' color mode) ---
   const VERTEX_HUES = [0, 30, 60, 120, 180, 210, 240, 270, 300, 330, 15, 45];
 
   function vertexColor(idx, opacity) {
-    const hue = VERTEX_HUES[idx % VERTEX_HUES.length];
-    return `hsla(${hue}, 85%, 60%, ${opacity})`;
+    return `hsla(${VERTEX_HUES[idx % 12]}, 85%, 60%, ${opacity})`;
   }
 
-  function randomColor(opacity) {
-    const h = Math.random() * 360;
-    return `hsla(${h}, 80%, 60%, ${opacity})`;
+  function hexToRgb(hex) {
+    return [parseInt(hex.slice(1,3),16), parseInt(hex.slice(3,5),16), parseInt(hex.slice(5,7),16)];
   }
 
-  function hexToRgba(hex, alpha) {
-    const r = parseInt(hex.slice(1, 3), 16);
-    const g = parseInt(hex.slice(3, 5), 16);
-    const b = parseInt(hex.slice(5, 7), 16);
-    return `rgba(${r},${g},${b},${alpha})`;
+  // ============================================================
+  //  CANVAS SIZING
+  // ============================================================
+  let canvasSize = 600; // CSS pixels
+
+  function resizeCanvas() {
+    const rect = canvasArea.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    canvasSize = Math.min(rect.width, rect.height) - 40;
+    canvas.width = canvasSize * dpr;
+    canvas.height = canvasSize * dpr;
+    canvas.style.width = canvasSize + 'px';
+    canvas.style.height = canvasSize + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return canvasSize;
   }
 
-  // --- Compute vertex positions ---
-  function getVertices(n, size) {
-    const cx = size / 2;
-    const cy = size / 2;
-    const R = (size / 2) * 0.85;
+  // ============================================================
+  //  COORDINATE TRANSFORMS (world 0-1 <-> screen pixels)
+  // ============================================================
+  function worldToScreen(wx, wy) {
+    const z = state.viewZoom;
+    const sx = (wx - state.viewCenterX) * z * canvasSize + canvasSize / 2;
+    const sy = (wy - state.viewCenterY) * z * canvasSize + canvasSize / 2;
+    return [sx, sy];
+  }
+
+  function screenToWorld(sx, sy) {
+    const z = state.viewZoom;
+    const wx = (sx - canvasSize / 2) / (z * canvasSize) + state.viewCenterX;
+    const wy = (sy - canvasSize / 2) / (z * canvasSize) + state.viewCenterY;
+    return [wx, wy];
+  }
+
+  // ============================================================
+  //  VERTICES (world coords, centered at 0.5, 0.5)
+  // ============================================================
+  function getVertices(n) {
+    const cx = 0.5, cy = 0.5, R = 0.425;
     const verts = [];
     for (let i = 0; i < n; i++) {
-      // Start from top (-PI/2) and go clockwise
       const angle = -Math.PI / 2 + (2 * Math.PI * i) / n;
-      verts.push({
-        x: cx + R * Math.cos(angle),
-        y: cy + R * Math.sin(angle),
-      });
+      verts.push({ x: cx + R * Math.cos(angle), y: cy + R * Math.sin(angle) });
     }
     return verts;
   }
 
-  // --- Draw vertex markers ---
-  function drawVertices(verts, size) {
+  function drawVertices(verts) {
     ctx.save();
     verts.forEach((v, i) => {
-      // Dot
+      const [sx, sy] = worldToScreen(v.x, v.y);
+      if (sx < -20 || sx > canvasSize + 20 || sy < -20 || sy > canvasSize + 20) return;
+
       ctx.beginPath();
-      ctx.arc(v.x, v.y, 5, 0, Math.PI * 2);
-      ctx.fillStyle = state.colorMode === 'vertex' ? vertexColor(i, 1) : 'rgba(255,255,255,0.7)';
+      ctx.arc(sx, sy, 5, 0, Math.PI * 2);
+      ctx.fillStyle = state.runColorMode === 'vertex' ? vertexColor(i, 1) : 'rgba(255,255,255,0.7)';
       ctx.fill();
 
-      // Label
-      const cx = size / 2;
-      const cy = size / 2;
-      const dx = v.x - cx;
-      const dy = v.y - cy;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      const labelX = v.x + (dx / dist) * 16;
-      const labelY = v.y + (dy / dist) * 16;
+      const dx = v.x - 0.5, dy = v.y - 0.5;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      const lx = sx + (dx / dist) * 16;
+      const ly = sy + (dy / dist) * 16;
       ctx.fillStyle = 'rgba(255,255,255,0.4)';
       ctx.font = '11px -apple-system, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(`P${i + 1}`, labelX, labelY);
+      ctx.fillText(`P${i + 1}`, lx, ly);
     });
     ctx.restore();
   }
 
-  // --- Main fractal run ---
-  function startRun() {
-    if (state.running) {
-      stopRun();
-      return;
+  // ============================================================
+  //  POINT BUFFER
+  // ============================================================
+  function ensurePointBuffer(needed) {
+    const cap = Math.min(needed, MAX_BUFFER_POINTS);
+    if (cap <= state.pointsCapacity) return;
+    const newCap = Math.min(Math.max(cap, (state.pointsCapacity || 1024) * 2), MAX_BUFFER_POINTS);
+    const newX = new Float32Array(newCap);
+    const newY = new Float32Array(newCap);
+    const newVI = new Uint8Array(newCap);
+    if (state.pointsX) {
+      newX.set(state.pointsX.subarray(0, state.pointsStored));
+      newY.set(state.pointsY.subarray(0, state.pointsStored));
+      newVI.set(state.pointsVI.subarray(0, state.pointsStored));
+    }
+    state.pointsX = newX;
+    state.pointsY = newY;
+    state.pointsVI = newVI;
+    state.pointsCapacity = newCap;
+  }
+
+  function clearPointBuffer() {
+    state.pointsX = null;
+    state.pointsY = null;
+    state.pointsVI = null;
+    state.pointsStored = 0;
+    state.pointsCapacity = 0;
+  }
+
+  function storePoint(wx, wy, vi) {
+    if (state.pointsStored >= MAX_BUFFER_POINTS) return;
+    if (state.pointsStored >= state.pointsCapacity) ensurePointBuffer(state.pointsStored + 1);
+    state.pointsX[state.pointsStored] = wx;
+    state.pointsY[state.pointsStored] = wy;
+    state.pointsVI[state.pointsStored] = vi;
+    state.pointsStored++;
+  }
+
+  // ============================================================
+  //  RENDER FROM BUFFER (re-render on zoom/pan)
+  // ============================================================
+  function renderFromBuffer() {
+    const size = canvasSize;
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.width, h = canvas.height;
+
+    const imageData = ctx.getImageData(0, 0, w, h);
+    const pixels = imageData.data;
+    // Clear to black
+    for (let i = 0; i < pixels.length; i += 4) {
+      pixels[i] = pixels[i+1] = pixels[i+2] = 0;
+      pixels[i+3] = 255;
     }
 
-    const size = resizeCanvas();
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, size, size);
+    const count = state.pointsStored;
+    if (count === 0) { ctx.putImageData(imageData, 0, 0); return; }
 
-    const verts = getVertices(state.vertices, size);
-    drawVertices(verts, size);
+    const px = state.pointsX, py = state.pointsY, pvi = state.pointsVI;
+    const z = state.viewZoom;
+    const vcx = state.viewCenterX, vcy = state.viewCenterY;
+    const halfSize = size / 2;
+    const scale = z * size * dpr;
+    const offX = halfSize * dpr - vcx * scale;
+    const offY = halfSize * dpr - vcy * scale;
 
-    state.running = true;
-    state.pointsDrawn = 0;
-    state.startTime = performance.now();
+    const colorMode = state.runColorMode;
+    const opacity = state.runOpacity;
+    const dotSize = state.runDotSize;
 
-    runBtn.textContent = 'Stop';
-    runBtn.className = 'btn btn-stop';
-    progressContainer.style.display = 'block';
+    // Precompute colors
+    let sr = 0, sg = 0, sb = 0;
+    if (colorMode === 'single' || colorMode === 'random') {
+      const rgb = hexToRgb(state.runSingleColor);
+      sr = rgb[0]; sg = rgb[1]; sb = rgb[2];
+    }
 
-    // Starting point: random vertex
-    const startVert = verts[Math.floor(Math.random() * verts.length)];
-    let cx = startVert.x;
-    let cy = startVert.y;
+    const vertRGBs = [];
+    const n = state.vertices;
+    for (let i = 0; i < n; i++) {
+      const rgb = hslToRgb(VERTEX_HUES[i % 12] / 360, 0.85, 0.6);
+      vertRGBs.push(rgb);
+    }
 
+    if (dotSize <= 1) {
+      // Single-pixel fast path
+      for (let i = 0; i < count; i++) {
+        const screenX = Math.round(px[i] * scale + offX);
+        const screenY = Math.round(py[i] * scale + offY);
+        if (screenX < 0 || screenX >= w || screenY < 0 || screenY >= h) continue;
+
+        const idx = (screenY * w + screenX) * 4;
+        let cr, cg, cb;
+        if (colorMode === 'vertex') {
+          const vc = vertRGBs[pvi[i]];
+          cr = vc[0]; cg = vc[1]; cb = vc[2];
+        } else {
+          cr = sr; cg = sg; cb = sb;
+        }
+        pixels[idx]     = Math.min(255, Math.round(cr * opacity + pixels[idx] * (1 - opacity)));
+        pixels[idx + 1] = Math.min(255, Math.round(cg * opacity + pixels[idx + 1] * (1 - opacity)));
+        pixels[idx + 2] = Math.min(255, Math.round(cb * opacity + pixels[idx + 2] * (1 - opacity)));
+      }
+    } else {
+      // Multi-pixel path
+      const halfDot = Math.ceil(dotSize * dpr / 2);
+      for (let i = 0; i < count; i++) {
+        const cx = Math.round(px[i] * scale + offX);
+        const cy = Math.round(py[i] * scale + offY);
+        if (cx < -halfDot || cx >= w + halfDot || cy < -halfDot || cy >= h + halfDot) continue;
+
+        let cr, cg, cb;
+        if (colorMode === 'vertex') {
+          const vc = vertRGBs[pvi[i]];
+          cr = vc[0]; cg = vc[1]; cb = vc[2];
+        } else {
+          cr = sr; cg = sg; cb = sb;
+        }
+
+        const x0 = Math.max(0, cx - halfDot), x1 = Math.min(w - 1, cx + halfDot);
+        const y0 = Math.max(0, cy - halfDot), y1 = Math.min(h - 1, cy + halfDot);
+        for (let py2 = y0; py2 <= y1; py2++) {
+          for (let px2 = x0; px2 <= x1; px2++) {
+            const idx = (py2 * w + px2) * 4;
+            pixels[idx]     = Math.min(255, Math.round(cr * opacity + pixels[idx] * (1 - opacity)));
+            pixels[idx + 1] = Math.min(255, Math.round(cg * opacity + pixels[idx + 1] * (1 - opacity)));
+            pixels[idx + 2] = Math.min(255, Math.round(cb * opacity + pixels[idx + 2] * (1 - opacity)));
+          }
+        }
+      }
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+
+    // Draw vertex markers on top
+    const verts = getVertices(state.vertices);
+    drawVertices(verts);
+    updateZoomDisplay();
+  }
+
+  // ============================================================
+  //  MAIN FRACTAL RUN
+  // ============================================================
+  function startRun() {
+    if (state.running) { stopRun(); return; }
+
+    resizeCanvas();
+
+    // Reset view and buffer
+    state.viewCenterX = 0.5;
+    state.viewCenterY = 0.5;
+    state.viewZoom = 1.0;
+    clearPointBuffer();
+    ensurePointBuffer(Math.min(state.totalPoints, MAX_BUFFER_POINTS));
+
+    // Snapshot color settings for re-render
+    state.runColorMode = state.colorMode;
+    state.runSingleColor = state.singleColor;
+    state.runOpacity = state.opacity;
+    state.runDotSize = state.dotSize;
+
+    const verts = getVertices(state.vertices);
+    const n = state.vertices;
     const total = state.totalPoints;
     const F = state.fractalF;
-    const n = state.vertices;
     const dotSize = state.dotSize;
     const opacity = state.opacity;
     const colorMode = state.colorMode;
     const singleColor = state.singleColor;
 
-    // Batch size: adaptive based on total
-    const batchSize = Math.min(Math.max(1000, Math.floor(total / 200)), 500000);
+    state.running = true;
+    state.pointsDrawn = 0;
+    state.startTime = performance.now();
+    runBtn.textContent = 'Stop';
+    runBtn.className = 'btn btn-stop';
+    progressContainer.style.display = 'block';
 
-    // For very large renders, use ImageData for performance
-    const useImageData = total > 500000 && dotSize <= 1 && colorMode !== 'random';
+    // Starting point
+    const sv = verts[Math.floor(Math.random() * n)];
+    let wx = sv.x, wy = sv.y;
+
+    const batchSize = Math.min(Math.max(1000, Math.floor(total / 200)), 500000);
+    const dpr = window.devicePixelRatio || 1;
+    const size = canvasSize;
+
+    // Use ImageData for fast initial render
+    const useImageData = total > 100000 && dotSize <= 1 && colorMode !== 'random';
     let imageData, pixels;
+
+    // Clear canvas
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, size, size);
 
     if (useImageData) {
       imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       pixels = imageData.data;
-      // Redraw vertices on top after
     }
 
-    const dpr = window.devicePixelRatio || 1;
-
-    // Precompute single color as RGB
-    let sr = 0, sg = 0, sb = 0, sa = 0;
+    // Precompute colors
+    let sr = 0, sg = 0, sb = 0;
     if (colorMode === 'single') {
-      sr = parseInt(singleColor.slice(1, 3), 16);
-      sg = parseInt(singleColor.slice(3, 5), 16);
-      sb = parseInt(singleColor.slice(5, 7), 16);
-      sa = Math.round(opacity * 255);
+      const rgb = hexToRgb(singleColor);
+      sr = rgb[0]; sg = rgb[1]; sb = rgb[2];
+    }
+    const vertRGBs = [];
+    for (let i = 0; i < n; i++) {
+      vertRGBs.push(hslToRgb(VERTEX_HUES[i % 12] / 360, 0.85, 0.6));
     }
 
-    // Precompute vertex colors as RGB
-    let vertexRGBs = [];
-    if (colorMode === 'vertex') {
-      for (let i = 0; i < n; i++) {
-        const hue = VERTEX_HUES[i % VERTEX_HUES.length];
-        const rgb = hslToRgb(hue / 360, 0.85, 0.6);
-        vertexRGBs.push({ r: rgb[0], g: rgb[1], b: rgb[2], a: Math.round(opacity * 255) });
-      }
-    }
+    // View transform constants for initial render (zoom=1, center=0.5,0.5)
+    const scale = size * dpr;
+    const offX = size * dpr / 2 - 0.5 * scale;
+    const offY = size * dpr / 2 - 0.5 * scale;
+    const cw = canvas.width, ch = canvas.height;
 
     function renderBatch() {
       if (!state.running) return;
-
       const batchEnd = Math.min(state.pointsDrawn + batchSize, total);
 
       if (useImageData) {
-        const w = canvas.width;
         for (let i = state.pointsDrawn; i < batchEnd; i++) {
           const vi = Math.floor(Math.random() * n);
           const v = verts[vi];
-          cx = cx + (v.x - cx) * F;
-          cy = cy + (v.y - cy) * F;
+          wx = wx + (v.x - wx) * F;
+          wy = wy + (v.y - wy) * F;
 
-          const px = Math.round(cx * dpr);
-          const py = Math.round(cy * dpr);
+          storePoint(wx, wy, vi);
 
-          if (px >= 0 && px < canvas.width && py >= 0 && py < canvas.height) {
-            const idx = (py * w + px) * 4;
-            if (colorMode === 'single') {
-              // Alpha compositing (simplified)
-              const oa = pixels[idx + 3] / 255;
-              const na = opacity;
-              pixels[idx]     = Math.min(255, Math.round(sr * na + pixels[idx] * (1 - na)));
-              pixels[idx + 1] = Math.min(255, Math.round(sg * na + pixels[idx + 1] * (1 - na)));
-              pixels[idx + 2] = Math.min(255, Math.round(sb * na + pixels[idx + 2] * (1 - na)));
-              pixels[idx + 3] = Math.min(255, pixels[idx + 3] + sa);
-            } else {
-              const vc = vertexRGBs[vi];
-              pixels[idx]     = Math.min(255, Math.round(vc.r * opacity + pixels[idx] * (1 - opacity)));
-              pixels[idx + 1] = Math.min(255, Math.round(vc.g * opacity + pixels[idx + 1] * (1 - opacity)));
-              pixels[idx + 2] = Math.min(255, Math.round(vc.b * opacity + pixels[idx + 2] * (1 - opacity)));
-              pixels[idx + 3] = Math.min(255, pixels[idx + 3] + vc.a);
-            }
+          const screenX = Math.round(wx * scale + offX);
+          const screenY = Math.round(wy * scale + offY);
+          if (screenX < 0 || screenX >= cw || screenY < 0 || screenY >= ch) continue;
+
+          const idx = (screenY * cw + screenX) * 4;
+          let cr, cg, cb;
+          if (colorMode === 'vertex') {
+            cr = vertRGBs[vi][0]; cg = vertRGBs[vi][1]; cb = vertRGBs[vi][2];
+          } else {
+            cr = sr; cg = sg; cb = sb;
           }
+          pixels[idx]     = Math.min(255, Math.round(cr * opacity + pixels[idx] * (1 - opacity)));
+          pixels[idx + 1] = Math.min(255, Math.round(cg * opacity + pixels[idx + 1] * (1 - opacity)));
+          pixels[idx + 2] = Math.min(255, Math.round(cb * opacity + pixels[idx + 2] * (1 - opacity)));
         }
       } else {
         for (let i = state.pointsDrawn; i < batchEnd; i++) {
           const vi = Math.floor(Math.random() * n);
           const v = verts[vi];
-          cx = cx + (v.x - cx) * F;
-          cy = cy + (v.y - cy) * F;
+          wx = wx + (v.x - wx) * F;
+          wy = wy + (v.y - wy) * F;
 
+          storePoint(wx, wy, vi);
+
+          const [sx, sy] = worldToScreen(wx, wy);
           if (colorMode === 'single') {
-            ctx.fillStyle = hexToRgba(singleColor, opacity);
+            ctx.fillStyle = `rgba(${sr},${sg},${sb},${opacity})`;
           } else if (colorMode === 'random') {
-            ctx.fillStyle = randomColor(opacity);
+            ctx.fillStyle = `hsla(${Math.random()*360}, 80%, 60%, ${opacity})`;
           } else {
             ctx.fillStyle = vertexColor(vi, opacity);
           }
-
-          ctx.fillRect(cx - dotSize / 2, cy - dotSize / 2, dotSize, dotSize);
+          ctx.fillRect(sx - dotSize / 2, sy - dotSize / 2, dotSize, dotSize);
         }
       }
 
       state.pointsDrawn = batchEnd;
 
-      // Update progress
       const pct = (state.pointsDrawn / total) * 100;
       progressFill.style.width = pct + '%';
       progressCount.textContent = `${formatNumber(state.pointsDrawn)} / ${formatNumber(total)}`;
-
       const elapsed = (performance.now() - state.startTime) / 1000;
-      const rate = state.pointsDrawn / elapsed;
-      progressRate.textContent = `${formatNumber(Math.round(rate))} pts/s`;
+      progressRate.textContent = `${formatNumber(Math.round(state.pointsDrawn / elapsed))} pts/s`;
 
       if (state.pointsDrawn >= total) {
-        // Done
         if (useImageData) {
           ctx.putImageData(imageData, 0, 0);
-          drawVertices(verts, size);
+          drawVertices(verts);
         }
         finishRun();
         return;
       }
 
-      // Put imageData periodically for visual feedback
       if (useImageData && state.pointsDrawn % (batchSize * 5) < batchSize) {
         ctx.putImageData(imageData, 0, 0);
-        drawVertices(verts, size);
+        drawVertices(verts);
       }
 
       state.animFrameId = requestAnimationFrame(renderBatch);
@@ -825,55 +1063,195 @@
 
   function clearCanvas() {
     stopRun();
-    const size = resizeCanvas();
+    clearPointBuffer();
+    state.viewCenterX = 0.5;
+    state.viewCenterY = 0.5;
+    state.viewZoom = 1.0;
+    resizeCanvas();
     ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, size, size);
+    ctx.fillRect(0, 0, canvasSize, canvasSize);
     state.pointsDrawn = 0;
     progressContainer.style.display = 'none';
     progressFill.style.width = '0%';
     infoOverlay.textContent = '';
-
-    // Draw vertices for reference
-    const verts = getVertices(state.vertices, size);
-    drawVertices(verts, size);
+    drawVertices(getVertices(state.vertices));
+    updateZoomDisplay();
   }
 
   function saveAs() {
     const link = document.createElement('a');
-    const fname = `fractal-N${state.vertices}-F${state.fractalF.toFixed(4)}-${formatNumber(state.pointsDrawn)}pts.png`;
+    const zoomStr = state.viewZoom > 1.01 ? `-${state.viewZoom.toFixed(1)}x` : '';
+    const fname = `fractal-N${state.vertices}-F${state.fractalF.toFixed(4)}-${formatNumber(state.pointsStored)}pts${zoomStr}.png`;
     link.download = fname;
     link.href = canvas.toDataURL('image/png');
     link.click();
   }
 
-  // --- HSL to RGB helper ---
-  function hslToRgb(h, s, l) {
-    let r, g, b;
-    if (s === 0) {
-      r = g = b = l;
-    } else {
-      const hue2rgb = (p, q, t) => {
-        if (t < 0) t += 1;
-        if (t > 1) t -= 1;
-        if (t < 1/6) return p + (q - p) * 6 * t;
-        if (t < 1/2) return q;
-        if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
-        return p;
-      };
-      const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-      const p = 2 * l - q;
-      r = hue2rgb(p, q, h + 1/3);
-      g = hue2rgb(p, q, h);
-      b = hue2rgb(p, q, h - 1/3);
-    }
-    return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+  // ============================================================
+  //  ZOOM / PAN
+  // ============================================================
+  function updateZoomDisplay() {
+    zoomLevelEl.textContent = state.viewZoom >= 10
+      ? `${Math.round(state.viewZoom)}x`
+      : `${state.viewZoom.toFixed(1)}x`;
   }
 
-  // --- Control handlers ---
+  function zoomAt(factor, screenX, screenY) {
+    // Zoom centered on a screen point
+    const [wx, wy] = screenToWorld(screenX, screenY);
+    state.viewZoom *= factor;
+    state.viewZoom = Math.max(0.5, Math.min(state.viewZoom, 10000));
+    // Adjust center so the world point stays under the cursor
+    const newWx = (screenX - canvasSize / 2) / (state.viewZoom * canvasSize) + state.viewCenterX;
+    const newWy = (screenY - canvasSize / 2) / (state.viewZoom * canvasSize) + state.viewCenterY;
+    state.viewCenterX += wx - newWx;
+    state.viewCenterY += wy - newWy;
+    renderFromBuffer();
+  }
+
+  function zoomIn() { zoomAt(1.5, canvasSize / 2, canvasSize / 2); }
+  function zoomOut() { zoomAt(1 / 1.5, canvasSize / 2, canvasSize / 2); }
+
+  function resetZoom() {
+    state.viewCenterX = 0.5;
+    state.viewCenterY = 0.5;
+    state.viewZoom = 1.0;
+    renderFromBuffer();
+  }
+
+  // ============================================================
+  //  MOUSE INTERACTIONS
+  // ============================================================
+  let isDragging = false;
+  let isSelecting = false;
+  let dragStartX = 0, dragStartY = 0;
+  let dragStartCX = 0, dragStartCY = 0;
+  let selStartX = 0, selStartY = 0;
+
+  function getCanvasPos(e) {
+    const rect = canvas.getBoundingClientRect();
+    return [e.clientX - rect.left, e.clientY - rect.top];
+  }
+
+  canvas.addEventListener('mousedown', (e) => {
+    if (state.running) return;
+    if (state.pointsStored === 0) return;
+    e.preventDefault();
+    const [mx, my] = getCanvasPos(e);
+
+    if (e.shiftKey) {
+      // Selection zoom
+      isSelecting = true;
+      selStartX = mx;
+      selStartY = my;
+      selectionRect.style.display = 'block';
+      selectionRect.style.left = mx + canvas.offsetLeft + 'px';
+      selectionRect.style.top = my + canvas.offsetTop + 'px';
+      selectionRect.style.width = '0px';
+      selectionRect.style.height = '0px';
+      canvasArea.classList.add('select-mode');
+      canvasArea.classList.remove('pan-mode');
+    } else {
+      // Pan
+      isDragging = true;
+      dragStartX = mx;
+      dragStartY = my;
+      dragStartCX = state.viewCenterX;
+      dragStartCY = state.viewCenterY;
+      canvasArea.classList.add('panning');
+    }
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (isDragging) {
+      const [mx, my] = getCanvasPos(e);
+      const dx = (mx - dragStartX) / (state.viewZoom * canvasSize);
+      const dy = (my - dragStartY) / (state.viewZoom * canvasSize);
+      state.viewCenterX = dragStartCX - dx;
+      state.viewCenterY = dragStartCY - dy;
+      renderFromBuffer();
+    } else if (isSelecting) {
+      const [mx, my] = getCanvasPos(e);
+      const x = Math.min(selStartX, mx);
+      const y = Math.min(selStartY, my);
+      const w = Math.abs(mx - selStartX);
+      const h = Math.abs(my - selStartY);
+      selectionRect.style.left = (x + canvas.offsetLeft) + 'px';
+      selectionRect.style.top = (y + canvas.offsetTop) + 'px';
+      selectionRect.style.width = w + 'px';
+      selectionRect.style.height = h + 'px';
+    }
+  });
+
+  window.addEventListener('mouseup', (e) => {
+    if (isDragging) {
+      isDragging = false;
+      canvasArea.classList.remove('panning');
+    } else if (isSelecting) {
+      isSelecting = false;
+      selectionRect.style.display = 'none';
+      canvasArea.classList.remove('select-mode');
+      canvasArea.classList.add('pan-mode');
+
+      const [mx, my] = getCanvasPos(e);
+      const x0 = Math.min(selStartX, mx);
+      const y0 = Math.min(selStartY, my);
+      const w = Math.abs(mx - selStartX);
+      const h = Math.abs(my - selStartY);
+
+      if (w > 5 && h > 5) {
+        // Zoom to selection
+        const [wx0, wy0] = screenToWorld(x0, y0);
+        const [wx1, wy1] = screenToWorld(x0 + w, y0 + h);
+        state.viewCenterX = (wx0 + wx1) / 2;
+        state.viewCenterY = (wy0 + wy1) / 2;
+        const worldW = Math.abs(wx1 - wx0);
+        const worldH = Math.abs(wy1 - wy0);
+        state.viewZoom = 1 / Math.max(worldW, worldH);
+        state.viewZoom = Math.max(0.5, Math.min(state.viewZoom, 10000));
+        renderFromBuffer();
+      }
+    }
+  });
+
+  canvas.addEventListener('wheel', (e) => {
+    if (state.running) return;
+    if (state.pointsStored === 0) return;
+    e.preventDefault();
+    const [mx, my] = getCanvasPos(e);
+    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+    zoomAt(factor, mx, my);
+  }, { passive: false });
+
+  canvas.addEventListener('dblclick', (e) => {
+    if (state.running) return;
+    if (state.pointsStored === 0) return;
+    e.preventDefault();
+    const [mx, my] = getCanvasPos(e);
+    zoomAt(2, mx, my);
+  });
+
+  // Shift key cursor toggle
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Shift' && !isDragging && !isSelecting) {
+      canvasArea.classList.add('select-mode');
+      canvasArea.classList.remove('pan-mode');
+    }
+  });
+
+  window.addEventListener('keyup', (e) => {
+    if (e.key === 'Shift' && !isSelecting) {
+      canvasArea.classList.remove('select-mode');
+      canvasArea.classList.add('pan-mode');
+    }
+  });
+
+  // ============================================================
+  //  CONTROL HANDLERS
+  // ============================================================
   verticesSlider.addEventListener('input', () => {
     state.vertices = parseInt(verticesSlider.value);
     document.getElementById('verticesValue').textContent = state.vertices;
-    // Auto-set optimal F when changing vertex count
     setOptimalF();
     updatePrompt();
     updatePreview();
@@ -902,7 +1280,6 @@
     if (!isNaN(val) && val > 0 && val < 1) {
       state.fractalF = val;
       document.getElementById('fractalValue').textContent = val.toFixed(4);
-      // Deselect preset buttons
       document.querySelectorAll('.control-group .preset-row .preset-btn').forEach(b => b.classList.remove('active'));
       updatePrompt();
     }
@@ -919,13 +1296,10 @@
     customFInput.value = val.toFixed(4);
     document.getElementById('fractalValue').textContent = val.toFixed(4);
 
-    // Update active button states
     const optBtn = document.getElementById('optimalBtn');
     const presetBtns = document.querySelectorAll('.control-group .preset-row .preset-btn:not(#optimalBtn)');
     const values = [1/2, 1/3, 2/3, 3/8];
     const optimalF = calcOptimalF(state.vertices);
-
-    // Check if this matches the optimal value
     const isOptimal = Math.abs(optimalF - val) < 0.0001;
     optBtn.classList.toggle('active', isOptimal);
     if (isOptimal) {
@@ -939,7 +1313,6 @@
       optBtn.style.borderColor = 'var(--border)';
       optBtn.style.fontWeight = '';
     }
-
     presetBtns.forEach((b, i) => {
       b.classList.toggle('active', Math.abs(values[i] - val) < 0.0001);
     });
@@ -965,54 +1338,50 @@
     };
     const p = presets[name];
     if (!p) return;
-
     state.vertices = p.vertices;
     verticesSlider.value = p.vertices;
     document.getElementById('verticesValue').textContent = p.vertices;
-
-    // Auto-calculate optimal F for this vertex count
     setOptimalF();
     updatePreview();
     updatePrompt();
   }
 
   function updatePreview() {
-    // Redraw just vertex markers when not running
     if (!state.running) {
-      const size = resizeCanvas();
+      resizeCanvas();
+      state.viewCenterX = 0.5;
+      state.viewCenterY = 0.5;
+      state.viewZoom = 1.0;
       ctx.fillStyle = '#000';
-      ctx.fillRect(0, 0, size, size);
-      const verts = getVertices(state.vertices, size);
-      drawVertices(verts, size);
+      ctx.fillRect(0, 0, canvasSize, canvasSize);
+      drawVertices(getVertices(state.vertices));
       state.pointsDrawn = 0;
+      clearPointBuffer();
       progressContainer.style.display = 'none';
+      updateZoomDisplay();
     }
   }
 
   function updateInfoOverlay() {
-    if (state.pointsDrawn > 0) {
-      infoOverlay.innerHTML = `N=${state.vertices} &middot; F=${state.fractalF.toFixed(4)}<br>${formatNumber(state.pointsDrawn)} points`;
+    if (state.pointsStored > 0) {
+      let info = `N=${state.vertices} &middot; F=${state.fractalF.toFixed(4)}<br>${formatNumber(state.pointsStored)} points`;
+      if (state.viewZoom > 1.01) info += `<br>${state.viewZoom.toFixed(1)}x zoom`;
+      infoOverlay.innerHTML = info;
     } else {
       infoOverlay.textContent = '';
     }
   }
 
-  // --- Prompt output ---
   function updatePrompt() {
     const parts = [];
     parts.push(`${state.vertices}-point chaos game fractal`);
     parts.push(`F = ${state.fractalF.toFixed(4)}`);
     parts.push(`${formatNumber(state.totalPoints)} iterations`);
-    if (state.colorMode === 'single') {
-      parts.push(`color: ${state.singleColor}`);
-    } else if (state.colorMode === 'random') {
-      parts.push(`random colors`);
-    } else {
-      parts.push(`vertex-based coloring`);
-    }
+    if (state.colorMode === 'single') parts.push(`color: ${state.singleColor}`);
+    else if (state.colorMode === 'random') parts.push(`random colors`);
+    else parts.push(`vertex-based coloring`);
     if (state.opacity < 1) parts.push(`opacity: ${Math.round(state.opacity * 100)}%`);
     if (state.dotSize !== 1) parts.push(`dot size: ${state.dotSize}px`);
-
     document.getElementById('promptOutput').textContent = parts.join(' | ');
   }
 
@@ -1025,7 +1394,9 @@
     });
   }
 
-  // --- Init ---
+  // ============================================================
+  //  INIT
+  // ============================================================
   function init() {
     resizeCanvas();
     updatePreview();
@@ -1034,7 +1405,11 @@
   }
 
   window.addEventListener('resize', () => {
-    if (!state.running) updatePreview();
+    if (!state.running) {
+      resizeCanvas();
+      if (state.pointsStored > 0) renderFromBuffer();
+      else updatePreview();
+    }
   });
 
   init();
