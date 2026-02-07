@@ -1,0 +1,1043 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fractal Chaos Game</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface2: #21262d;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #58a6ff;
+    --accent-hover: #79c0ff;
+    --green: #3fb950;
+    --red: #f85149;
+    --orange: #d29922;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+  }
+
+  /* Sidebar */
+  .sidebar {
+    width: 320px;
+    min-width: 320px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  .sidebar-header {
+    padding: 20px 20px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .sidebar-header h1 {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+
+  .sidebar-header p {
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  .control-group {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .control-group label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+  }
+
+  .control-group .value-display {
+    font-size: 13px;
+    color: var(--accent);
+    font-weight: 600;
+    float: right;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+
+  input[type="range"] {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--surface2);
+    outline: none;
+    margin: 8px 0;
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+    border: 2px solid var(--bg);
+  }
+
+  input[type="range"]::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+    border: 2px solid var(--bg);
+  }
+
+  /* Preset buttons */
+  .preset-row {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+
+  .preset-btn {
+    padding: 5px 12px;
+    font-size: 13px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    cursor: pointer;
+    transition: all 0.15s;
+    font-family: inherit;
+  }
+
+  .preset-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .preset-btn.active { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 600; }
+
+  /* Custom F input */
+  .custom-f-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+  }
+
+  .custom-f-row span {
+    font-size: 12px;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+
+  input[type="number"] {
+    width: 100%;
+    padding: 6px 10px;
+    font-size: 14px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    outline: none;
+  }
+
+  input[type="number"]:focus { border-color: var(--accent); }
+
+  /* Color controls */
+  .color-mode-row {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+
+  input[type="color"] {
+    -webkit-appearance: none;
+    width: 40px;
+    height: 32px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface2);
+    cursor: pointer;
+    padding: 2px;
+  }
+
+  input[type="color"]::-webkit-color-swatch-wrapper { padding: 2px; }
+  input[type="color"]::-webkit-color-swatch { border-radius: 3px; border: none; }
+
+  .color-picker-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .color-picker-row span {
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+
+  /* Action buttons */
+  .actions {
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .btn {
+    padding: 10px 16px;
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.15s;
+    text-align: center;
+  }
+
+  .btn-run {
+    background: var(--green);
+    color: var(--bg);
+    border-color: var(--green);
+  }
+  .btn-run:hover { filter: brightness(1.1); }
+  .btn-run:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .btn-stop {
+    background: var(--red);
+    color: #fff;
+    border-color: var(--red);
+  }
+  .btn-stop:hover { filter: brightness(1.1); }
+
+  .btn-row {
+    display: flex;
+    gap: 8px;
+  }
+
+  .btn-secondary {
+    background: var(--surface2);
+    color: var(--text);
+    flex: 1;
+  }
+  .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* Progress */
+  .progress-container {
+    padding: 0 20px 16px;
+  }
+
+  .progress-bar-bg {
+    width: 100%;
+    height: 6px;
+    background: var(--surface2);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: 6px;
+  }
+
+  .progress-bar-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 3px;
+    width: 0%;
+    transition: width 0.1s;
+  }
+
+  .progress-text {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  /* Presets section */
+  .presets-section {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .presets-section label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+  }
+
+  .scene-preset {
+    display: block;
+    width: 100%;
+    padding: 8px 12px;
+    margin-bottom: 4px;
+    font-size: 13px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    cursor: pointer;
+    text-align: left;
+    font-family: inherit;
+    transition: all 0.15s;
+  }
+
+  .scene-preset:hover { border-color: var(--accent); color: var(--accent); }
+  .scene-preset .desc { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+
+  /* Canvas area */
+  .canvas-area {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    background: #000;
+    overflow: hidden;
+  }
+
+  canvas {
+    display: block;
+  }
+
+  /* Info overlay */
+  .info-overlay {
+    position: absolute;
+    top: 12px;
+    right: 16px;
+    font-size: 12px;
+    color: var(--text-dim);
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    text-align: right;
+    pointer-events: none;
+    line-height: 1.6;
+  }
+
+  /* Prompt output */
+  .prompt-section {
+    padding: 16px 20px;
+    flex-shrink: 0;
+  }
+
+  .prompt-section label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+  }
+
+  .prompt-output {
+    font-size: 12px;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    min-height: 48px;
+    max-height: 100px;
+    overflow-y: auto;
+    line-height: 1.5;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+  }
+
+  .copy-btn {
+    margin-top: 6px;
+    padding: 5px 14px;
+    font-size: 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.15s;
+  }
+
+  .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* Dot size control */
+  .dot-size-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="sidebar-header">
+    <h1>Fractal Chaos Game</h1>
+    <p>Random point iteration reveals hidden fractal geometry</p>
+  </div>
+
+  <!-- Scene Presets -->
+  <div class="presets-section">
+    <label>Presets</label>
+    <button class="scene-preset" onclick="applyPreset('sierpinski')">
+      Sierpinski Triangle <div class="desc">3 points, F = 0.5000</div>
+    </button>
+    <button class="scene-preset" onclick="applyPreset('pentagon')">
+      Pentagonal Gasket <div class="desc">5 points, F = 0.6180</div>
+    </button>
+    <button class="scene-preset" onclick="applyPreset('hexagon')">
+      Hexagonal Gasket <div class="desc">6 points, F = 0.6667</div>
+    </button>
+    <button class="scene-preset" onclick="applyPreset('octagon')">
+      Octagonal Gasket <div class="desc">8 points, F = 0.7071</div>
+    </button>
+    <button class="scene-preset" onclick="applyPreset('dodecagon')">
+      Dodecagonal Gasket <div class="desc">12 points, F = 0.7887</div>
+    </button>
+  </div>
+
+  <!-- Number of vertices -->
+  <div class="control-group">
+    <label>Vertices (N) <span class="value-display" id="verticesValue">3</span></label>
+    <input type="range" id="verticesSlider" min="2" max="12" value="3" step="1">
+  </div>
+
+  <!-- Total points -->
+  <div class="control-group">
+    <label>Total Points <span class="value-display" id="pointsValue">500,000</span></label>
+    <input type="range" id="pointsSlider" min="0" max="800" value="570" step="1">
+    <div style="display:flex; justify-content:space-between; font-size:10px; color:var(--text-dim);">
+      <span>1</span><span>100M</span>
+    </div>
+  </div>
+
+  <!-- Fractal Dimension -->
+  <div class="control-group">
+    <label>Fractal Ratio (F) <span class="value-display" id="fractalValue">0.5000</span></label>
+    <div class="preset-row">
+      <button class="preset-btn" onclick="setOptimalF()" id="optimalBtn" title="Calculate optimal F for current vertex count" style="background:var(--accent);color:var(--bg);border-color:var(--accent);font-weight:600;">Optimal</button>
+      <button class="preset-btn" onclick="setF(1/2)">1/2</button>
+      <button class="preset-btn" onclick="setF(1/3)">1/3</button>
+      <button class="preset-btn" onclick="setF(2/3)">2/3</button>
+      <button class="preset-btn" onclick="setF(3/8)">3/8</button>
+    </div>
+    <div class="custom-f-row">
+      <span>Custom:</span>
+      <input type="number" id="customF" min="0.001" max="0.999" step="0.001" value="0.5000" placeholder="0.001 - 0.999">
+    </div>
+  </div>
+
+  <!-- Dot Size -->
+  <div class="control-group">
+    <label>Dot Size <span class="value-display" id="dotSizeValue">1 px</span></label>
+    <input type="range" id="dotSizeSlider" min="0.5" max="4" value="1" step="0.5">
+  </div>
+
+  <!-- Color Mode -->
+  <div class="control-group">
+    <label>Color</label>
+    <div class="color-mode-row">
+      <button class="preset-btn active" id="singleColorBtn" onclick="setColorMode('single')">Single Color</button>
+      <button class="preset-btn" id="randomColorBtn" onclick="setColorMode('random')">Random</button>
+      <button class="preset-btn" id="vertexColorBtn" onclick="setColorMode('vertex')">By Vertex</button>
+    </div>
+    <div class="color-picker-row" id="colorPickerRow">
+      <input type="color" id="dotColor" value="#58a6ff">
+      <span id="colorHex">#58a6ff</span>
+    </div>
+    <div id="opacityRow" style="margin-top: 8px;">
+      <label style="margin-bottom: 4px;">Opacity <span class="value-display" id="opacityValue">80%</span></label>
+      <input type="range" id="opacitySlider" min="1" max="100" value="80" step="1">
+    </div>
+  </div>
+
+  <!-- Actions -->
+  <div class="actions">
+    <button class="btn btn-run" id="runBtn" onclick="startRun()">Run</button>
+    <div class="btn-row">
+      <button class="btn btn-secondary" onclick="clearCanvas()">Clear All</button>
+      <button class="btn btn-secondary" onclick="saveAs()">Save As</button>
+    </div>
+  </div>
+
+  <!-- Progress -->
+  <div class="progress-container" id="progressContainer" style="display:none;">
+    <div class="progress-bar-bg">
+      <div class="progress-bar-fill" id="progressFill"></div>
+    </div>
+    <div class="progress-text">
+      <span id="progressCount">0 / 0</span>
+      <span id="progressRate"></span>
+    </div>
+  </div>
+
+  <!-- Prompt Output -->
+  <div class="prompt-section">
+    <label>Configuration</label>
+    <div class="prompt-output" id="promptOutput"></div>
+    <button class="copy-btn" onclick="copyPrompt()">Copy</button>
+  </div>
+</div>
+
+<div class="canvas-area" id="canvasArea">
+  <canvas id="fractalCanvas"></canvas>
+  <div class="info-overlay" id="infoOverlay"></div>
+</div>
+
+<script>
+  // --- State ---
+  const state = {
+    vertices: 3,
+    totalPoints: 500000,
+    fractalF: 0.5,
+    colorMode: 'single',   // 'single' | 'random' | 'vertex'
+    singleColor: '#58a6ff',
+    opacity: 0.8,
+    dotSize: 1,
+    running: false,
+    pointsDrawn: 0,
+    animFrameId: null,
+    startTime: 0,
+  };
+
+  // --- Optimal F calculation ---
+  // The "kissing ratio" where sub-copies just touch, producing a perfect gasket
+  function calcOptimalF(n) {
+    if (n % 4 === 0) return 1 / (1 + Math.tan(Math.PI / n));
+    if (n % 2 === 0) return 1 / (1 + Math.sin(Math.PI / n));
+    return 1 / (1 + 2 * Math.sin(Math.PI / (2 * n)));
+  }
+
+  function setOptimalF() {
+    const f = calcOptimalF(state.vertices);
+    setF(f);
+  }
+
+  // --- Elements ---
+  const canvas = document.getElementById('fractalCanvas');
+  const ctx = canvas.getContext('2d');
+  const canvasArea = document.getElementById('canvasArea');
+
+  const verticesSlider = document.getElementById('verticesSlider');
+  const pointsSlider = document.getElementById('pointsSlider');
+  const dotSizeSlider = document.getElementById('dotSizeSlider');
+  const opacitySlider = document.getElementById('opacitySlider');
+  const customFInput = document.getElementById('customF');
+  const dotColorInput = document.getElementById('dotColor');
+  const runBtn = document.getElementById('runBtn');
+  const progressContainer = document.getElementById('progressContainer');
+  const progressFill = document.getElementById('progressFill');
+  const progressCount = document.getElementById('progressCount');
+  const progressRate = document.getElementById('progressRate');
+  const infoOverlay = document.getElementById('infoOverlay');
+
+  // --- Logarithmic points slider ---
+  // Maps 0-800 to 1-100,000,000 logarithmically
+  function sliderToPoints(val) {
+    const minLog = 0;          // log10(1)
+    const maxLog = 8;          // log10(100,000,000)
+    const logVal = minLog + (val / 800) * (maxLog - minLog);
+    return Math.round(Math.pow(10, logVal));
+  }
+
+  function pointsToSlider(pts) {
+    const minLog = 0;
+    const maxLog = 8;
+    const logVal = Math.log10(Math.max(1, pts));
+    return Math.round(((logVal - minLog) / (maxLog - minLog)) * 800);
+  }
+
+  function formatNumber(n) {
+    if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+    if (n >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, '') + 'K';
+    return n.toLocaleString();
+  }
+
+  // --- Canvas sizing ---
+  function resizeCanvas() {
+    const rect = canvasArea.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const size = Math.min(rect.width, rect.height) - 40;
+    canvas.width = size * dpr;
+    canvas.height = size * dpr;
+    canvas.style.width = size + 'px';
+    canvas.style.height = size + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return size;
+  }
+
+  // --- Vertex colors (for 'vertex' color mode) ---
+  const VERTEX_HUES = [0, 30, 60, 120, 180, 210, 240, 270, 300, 330, 15, 45];
+
+  function vertexColor(idx, opacity) {
+    const hue = VERTEX_HUES[idx % VERTEX_HUES.length];
+    return `hsla(${hue}, 85%, 60%, ${opacity})`;
+  }
+
+  function randomColor(opacity) {
+    const h = Math.random() * 360;
+    return `hsla(${h}, 80%, 60%, ${opacity})`;
+  }
+
+  function hexToRgba(hex, alpha) {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+
+  // --- Compute vertex positions ---
+  function getVertices(n, size) {
+    const cx = size / 2;
+    const cy = size / 2;
+    const R = (size / 2) * 0.85;
+    const verts = [];
+    for (let i = 0; i < n; i++) {
+      // Start from top (-PI/2) and go clockwise
+      const angle = -Math.PI / 2 + (2 * Math.PI * i) / n;
+      verts.push({
+        x: cx + R * Math.cos(angle),
+        y: cy + R * Math.sin(angle),
+      });
+    }
+    return verts;
+  }
+
+  // --- Draw vertex markers ---
+  function drawVertices(verts, size) {
+    ctx.save();
+    verts.forEach((v, i) => {
+      // Dot
+      ctx.beginPath();
+      ctx.arc(v.x, v.y, 5, 0, Math.PI * 2);
+      ctx.fillStyle = state.colorMode === 'vertex' ? vertexColor(i, 1) : 'rgba(255,255,255,0.7)';
+      ctx.fill();
+
+      // Label
+      const cx = size / 2;
+      const cy = size / 2;
+      const dx = v.x - cx;
+      const dy = v.y - cy;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const labelX = v.x + (dx / dist) * 16;
+      const labelY = v.y + (dy / dist) * 16;
+      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      ctx.font = '11px -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`P${i + 1}`, labelX, labelY);
+    });
+    ctx.restore();
+  }
+
+  // --- Main fractal run ---
+  function startRun() {
+    if (state.running) {
+      stopRun();
+      return;
+    }
+
+    const size = resizeCanvas();
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, size, size);
+
+    const verts = getVertices(state.vertices, size);
+    drawVertices(verts, size);
+
+    state.running = true;
+    state.pointsDrawn = 0;
+    state.startTime = performance.now();
+
+    runBtn.textContent = 'Stop';
+    runBtn.className = 'btn btn-stop';
+    progressContainer.style.display = 'block';
+
+    // Starting point: random vertex
+    const startVert = verts[Math.floor(Math.random() * verts.length)];
+    let cx = startVert.x;
+    let cy = startVert.y;
+
+    const total = state.totalPoints;
+    const F = state.fractalF;
+    const n = state.vertices;
+    const dotSize = state.dotSize;
+    const opacity = state.opacity;
+    const colorMode = state.colorMode;
+    const singleColor = state.singleColor;
+
+    // Batch size: adaptive based on total
+    const batchSize = Math.min(Math.max(1000, Math.floor(total / 200)), 500000);
+
+    // For very large renders, use ImageData for performance
+    const useImageData = total > 500000 && dotSize <= 1 && colorMode !== 'random';
+    let imageData, pixels;
+
+    if (useImageData) {
+      imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      pixels = imageData.data;
+      // Redraw vertices on top after
+    }
+
+    const dpr = window.devicePixelRatio || 1;
+
+    // Precompute single color as RGB
+    let sr = 0, sg = 0, sb = 0, sa = 0;
+    if (colorMode === 'single') {
+      sr = parseInt(singleColor.slice(1, 3), 16);
+      sg = parseInt(singleColor.slice(3, 5), 16);
+      sb = parseInt(singleColor.slice(5, 7), 16);
+      sa = Math.round(opacity * 255);
+    }
+
+    // Precompute vertex colors as RGB
+    let vertexRGBs = [];
+    if (colorMode === 'vertex') {
+      for (let i = 0; i < n; i++) {
+        const hue = VERTEX_HUES[i % VERTEX_HUES.length];
+        const rgb = hslToRgb(hue / 360, 0.85, 0.6);
+        vertexRGBs.push({ r: rgb[0], g: rgb[1], b: rgb[2], a: Math.round(opacity * 255) });
+      }
+    }
+
+    function renderBatch() {
+      if (!state.running) return;
+
+      const batchEnd = Math.min(state.pointsDrawn + batchSize, total);
+
+      if (useImageData) {
+        const w = canvas.width;
+        for (let i = state.pointsDrawn; i < batchEnd; i++) {
+          const vi = Math.floor(Math.random() * n);
+          const v = verts[vi];
+          cx = cx + (v.x - cx) * F;
+          cy = cy + (v.y - cy) * F;
+
+          const px = Math.round(cx * dpr);
+          const py = Math.round(cy * dpr);
+
+          if (px >= 0 && px < canvas.width && py >= 0 && py < canvas.height) {
+            const idx = (py * w + px) * 4;
+            if (colorMode === 'single') {
+              // Alpha compositing (simplified)
+              const oa = pixels[idx + 3] / 255;
+              const na = opacity;
+              pixels[idx]     = Math.min(255, Math.round(sr * na + pixels[idx] * (1 - na)));
+              pixels[idx + 1] = Math.min(255, Math.round(sg * na + pixels[idx + 1] * (1 - na)));
+              pixels[idx + 2] = Math.min(255, Math.round(sb * na + pixels[idx + 2] * (1 - na)));
+              pixels[idx + 3] = Math.min(255, pixels[idx + 3] + sa);
+            } else {
+              const vc = vertexRGBs[vi];
+              pixels[idx]     = Math.min(255, Math.round(vc.r * opacity + pixels[idx] * (1 - opacity)));
+              pixels[idx + 1] = Math.min(255, Math.round(vc.g * opacity + pixels[idx + 1] * (1 - opacity)));
+              pixels[idx + 2] = Math.min(255, Math.round(vc.b * opacity + pixels[idx + 2] * (1 - opacity)));
+              pixels[idx + 3] = Math.min(255, pixels[idx + 3] + vc.a);
+            }
+          }
+        }
+      } else {
+        for (let i = state.pointsDrawn; i < batchEnd; i++) {
+          const vi = Math.floor(Math.random() * n);
+          const v = verts[vi];
+          cx = cx + (v.x - cx) * F;
+          cy = cy + (v.y - cy) * F;
+
+          if (colorMode === 'single') {
+            ctx.fillStyle = hexToRgba(singleColor, opacity);
+          } else if (colorMode === 'random') {
+            ctx.fillStyle = randomColor(opacity);
+          } else {
+            ctx.fillStyle = vertexColor(vi, opacity);
+          }
+
+          ctx.fillRect(cx - dotSize / 2, cy - dotSize / 2, dotSize, dotSize);
+        }
+      }
+
+      state.pointsDrawn = batchEnd;
+
+      // Update progress
+      const pct = (state.pointsDrawn / total) * 100;
+      progressFill.style.width = pct + '%';
+      progressCount.textContent = `${formatNumber(state.pointsDrawn)} / ${formatNumber(total)}`;
+
+      const elapsed = (performance.now() - state.startTime) / 1000;
+      const rate = state.pointsDrawn / elapsed;
+      progressRate.textContent = `${formatNumber(Math.round(rate))} pts/s`;
+
+      if (state.pointsDrawn >= total) {
+        // Done
+        if (useImageData) {
+          ctx.putImageData(imageData, 0, 0);
+          drawVertices(verts, size);
+        }
+        finishRun();
+        return;
+      }
+
+      // Put imageData periodically for visual feedback
+      if (useImageData && state.pointsDrawn % (batchSize * 5) < batchSize) {
+        ctx.putImageData(imageData, 0, 0);
+        drawVertices(verts, size);
+      }
+
+      state.animFrameId = requestAnimationFrame(renderBatch);
+    }
+
+    state.animFrameId = requestAnimationFrame(renderBatch);
+  }
+
+  function stopRun() {
+    state.running = false;
+    if (state.animFrameId) cancelAnimationFrame(state.animFrameId);
+    runBtn.textContent = 'Run';
+    runBtn.className = 'btn btn-run';
+    updateInfoOverlay();
+  }
+
+  function finishRun() {
+    state.running = false;
+    runBtn.textContent = 'Run';
+    runBtn.className = 'btn btn-run';
+    const elapsed = ((performance.now() - state.startTime) / 1000).toFixed(1);
+    progressRate.textContent = `Done in ${elapsed}s`;
+    updateInfoOverlay();
+  }
+
+  function clearCanvas() {
+    stopRun();
+    const size = resizeCanvas();
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, size, size);
+    state.pointsDrawn = 0;
+    progressContainer.style.display = 'none';
+    progressFill.style.width = '0%';
+    infoOverlay.textContent = '';
+
+    // Draw vertices for reference
+    const verts = getVertices(state.vertices, size);
+    drawVertices(verts, size);
+  }
+
+  function saveAs() {
+    const link = document.createElement('a');
+    const fname = `fractal-N${state.vertices}-F${state.fractalF.toFixed(4)}-${formatNumber(state.pointsDrawn)}pts.png`;
+    link.download = fname;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  }
+
+  // --- HSL to RGB helper ---
+  function hslToRgb(h, s, l) {
+    let r, g, b;
+    if (s === 0) {
+      r = g = b = l;
+    } else {
+      const hue2rgb = (p, q, t) => {
+        if (t < 0) t += 1;
+        if (t > 1) t -= 1;
+        if (t < 1/6) return p + (q - p) * 6 * t;
+        if (t < 1/2) return q;
+        if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+        return p;
+      };
+      const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+      const p = 2 * l - q;
+      r = hue2rgb(p, q, h + 1/3);
+      g = hue2rgb(p, q, h);
+      b = hue2rgb(p, q, h - 1/3);
+    }
+    return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+  }
+
+  // --- Control handlers ---
+  verticesSlider.addEventListener('input', () => {
+    state.vertices = parseInt(verticesSlider.value);
+    document.getElementById('verticesValue').textContent = state.vertices;
+    // Auto-set optimal F when changing vertex count
+    setOptimalF();
+    updatePrompt();
+    updatePreview();
+  });
+
+  pointsSlider.addEventListener('input', () => {
+    state.totalPoints = sliderToPoints(parseInt(pointsSlider.value));
+    document.getElementById('pointsValue').textContent = formatNumber(state.totalPoints);
+    updatePrompt();
+  });
+
+  dotSizeSlider.addEventListener('input', () => {
+    state.dotSize = parseFloat(dotSizeSlider.value);
+    document.getElementById('dotSizeValue').textContent = state.dotSize + ' px';
+    updatePrompt();
+  });
+
+  opacitySlider.addEventListener('input', () => {
+    state.opacity = parseInt(opacitySlider.value) / 100;
+    document.getElementById('opacityValue').textContent = parseInt(opacitySlider.value) + '%';
+    updatePrompt();
+  });
+
+  customFInput.addEventListener('input', () => {
+    let val = parseFloat(customFInput.value);
+    if (!isNaN(val) && val > 0 && val < 1) {
+      state.fractalF = val;
+      document.getElementById('fractalValue').textContent = val.toFixed(4);
+      // Deselect preset buttons
+      document.querySelectorAll('.control-group .preset-row .preset-btn').forEach(b => b.classList.remove('active'));
+      updatePrompt();
+    }
+  });
+
+  dotColorInput.addEventListener('input', () => {
+    state.singleColor = dotColorInput.value;
+    document.getElementById('colorHex').textContent = dotColorInput.value;
+    updatePrompt();
+  });
+
+  function setF(val) {
+    state.fractalF = val;
+    customFInput.value = val.toFixed(4);
+    document.getElementById('fractalValue').textContent = val.toFixed(4);
+
+    // Update active button states
+    const optBtn = document.getElementById('optimalBtn');
+    const presetBtns = document.querySelectorAll('.control-group .preset-row .preset-btn:not(#optimalBtn)');
+    const values = [1/2, 1/3, 2/3, 3/8];
+    const optimalF = calcOptimalF(state.vertices);
+
+    // Check if this matches the optimal value
+    const isOptimal = Math.abs(optimalF - val) < 0.0001;
+    optBtn.classList.toggle('active', isOptimal);
+    if (isOptimal) {
+      optBtn.style.background = '';
+      optBtn.style.color = '';
+      optBtn.style.borderColor = '';
+      optBtn.style.fontWeight = '';
+    } else {
+      optBtn.style.background = 'var(--surface2)';
+      optBtn.style.color = 'var(--text)';
+      optBtn.style.borderColor = 'var(--border)';
+      optBtn.style.fontWeight = '';
+    }
+
+    presetBtns.forEach((b, i) => {
+      b.classList.toggle('active', Math.abs(values[i] - val) < 0.0001);
+    });
+    updatePrompt();
+  }
+
+  function setColorMode(mode) {
+    state.colorMode = mode;
+    document.getElementById('singleColorBtn').classList.toggle('active', mode === 'single');
+    document.getElementById('randomColorBtn').classList.toggle('active', mode === 'random');
+    document.getElementById('vertexColorBtn').classList.toggle('active', mode === 'vertex');
+    document.getElementById('colorPickerRow').style.display = mode === 'single' ? 'flex' : 'none';
+    updatePrompt();
+  }
+
+  function applyPreset(name) {
+    const presets = {
+      sierpinski: { vertices: 3 },
+      pentagon:   { vertices: 5 },
+      hexagon:    { vertices: 6 },
+      octagon:    { vertices: 8 },
+      dodecagon:  { vertices: 12 },
+    };
+    const p = presets[name];
+    if (!p) return;
+
+    state.vertices = p.vertices;
+    verticesSlider.value = p.vertices;
+    document.getElementById('verticesValue').textContent = p.vertices;
+
+    // Auto-calculate optimal F for this vertex count
+    setOptimalF();
+    updatePreview();
+    updatePrompt();
+  }
+
+  function updatePreview() {
+    // Redraw just vertex markers when not running
+    if (!state.running) {
+      const size = resizeCanvas();
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, size, size);
+      const verts = getVertices(state.vertices, size);
+      drawVertices(verts, size);
+      state.pointsDrawn = 0;
+      progressContainer.style.display = 'none';
+    }
+  }
+
+  function updateInfoOverlay() {
+    if (state.pointsDrawn > 0) {
+      infoOverlay.innerHTML = `N=${state.vertices} &middot; F=${state.fractalF.toFixed(4)}<br>${formatNumber(state.pointsDrawn)} points`;
+    } else {
+      infoOverlay.textContent = '';
+    }
+  }
+
+  // --- Prompt output ---
+  function updatePrompt() {
+    const parts = [];
+    parts.push(`${state.vertices}-point chaos game fractal`);
+    parts.push(`F = ${state.fractalF.toFixed(4)}`);
+    parts.push(`${formatNumber(state.totalPoints)} iterations`);
+    if (state.colorMode === 'single') {
+      parts.push(`color: ${state.singleColor}`);
+    } else if (state.colorMode === 'random') {
+      parts.push(`random colors`);
+    } else {
+      parts.push(`vertex-based coloring`);
+    }
+    if (state.opacity < 1) parts.push(`opacity: ${Math.round(state.opacity * 100)}%`);
+    if (state.dotSize !== 1) parts.push(`dot size: ${state.dotSize}px`);
+
+    document.getElementById('promptOutput').textContent = parts.join(' | ');
+  }
+
+  function copyPrompt() {
+    const text = document.getElementById('promptOutput').textContent;
+    navigator.clipboard.writeText(text).then(() => {
+      const btn = document.querySelector('.copy-btn');
+      btn.textContent = 'Copied!';
+      setTimeout(() => btn.textContent = 'Copy', 1500);
+    });
+  }
+
+  // --- Init ---
+  function init() {
+    resizeCanvas();
+    updatePreview();
+    updatePrompt();
+    setColorMode('single');
+  }
+
+  window.addEventListener('resize', () => {
+    if (!state.running) updatePreview();
+  });
+
+  init();
+</script>
+</body>
+</html>
