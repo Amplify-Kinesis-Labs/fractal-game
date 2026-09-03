@@ -1,0 +1,10 @@
+# Repo-level gitleaks config. Extends the default ruleset; only adds allowlists.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Paths that intentionally contain secret-shaped strings (test fixtures, examples)"
+paths = [
+  '''(^|/)[^/]*\.example\.(ya?ml|json|env)$''',
+  '''(^|/)\.env\.example$''',
+]
