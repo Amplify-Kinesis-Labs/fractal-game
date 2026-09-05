@@ -3,3 +3,6 @@ Thumbs.db
 .idea/
 .vscode/
 .claude/settings.local.json
+
+# Playwright MCP writes console logs into the cwd
+.playwright-mcp/
